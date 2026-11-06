@@ -87,28 +87,36 @@ class Ledger:
             This can result in SQL injection vulnerabilities.
         '''
 
-        self.connection.rollback()   # clear any transaction left open by an earlier SELECT
-        with self.connection.begin():
-            sql = text('LOCK TABLE balances IN ACCESS EXCLUSIVE MODE;')
-            logging.debug(sql)
-            self.connection.execute(sql)
-            # insert the transaction
-            sql = text(f'INSERT INTO transactions (debit_account_id, credit_account_id, amount) VALUES ({debit_account_id}, {credit_account_id}, {amount});')
-            logging.debug(sql)
-            self.connection.execute(sql)
+        import sqlalchemy
+        while True:
+            try:
+                self.connection.rollback()   # clear any transaction left open by an earlier SELECT
+                with self.connection.begin():
+                    # TASK 3 table lock, commented out for TASK 4:
+                    # sql = text('LOCK TABLE balances IN ACCESS EXCLUSIVE MODE;')
+                    # self.connection.execute(sql)
 
-            # update the debit account balance
-            sql = text(f'SELECT balance FROM balances WHERE account_id = {debit_account_id};')
-            logging.debug(sql)
-            debit_account_balance = self.connection.execute(sql).first()[0]
-            sql = text(f'UPDATE balances SET balance={debit_account_balance - amount} WHERE account_id = {debit_account_id};')
-            logging.debug(sql)
-            self.connection.execute(sql)
+                    # insert the transaction
+                    sql = text(f'INSERT INTO transactions (debit_account_id, credit_account_id, amount) VALUES ({debit_account_id}, {credit_account_id}, {amount});')
+                    logging.debug(sql)
+                    self.connection.execute(sql)
 
-            # update the credit account balance
-            sql = text(f'SELECT balance FROM balances WHERE account_id = {credit_account_id};')
-            logging.debug(sql)
-            credit_account_balance = self.connection.execute(sql).first()[0]
-            sql = text(f'UPDATE balances SET balance={credit_account_balance + amount} WHERE account_id = {credit_account_id};')
-            logging.debug(sql)
-            self.connection.execute(sql)
+                    # update the debit account balance (row-level lock)
+                    sql = text(f'SELECT balance FROM balances WHERE account_id = {debit_account_id} FOR UPDATE;')
+                    logging.debug(sql)
+                    debit_account_balance = self.connection.execute(sql).first()[0]
+                    sql = text(f'UPDATE balances SET balance={debit_account_balance - amount} WHERE account_id = {debit_account_id};')
+                    logging.debug(sql)
+                    self.connection.execute(sql)
+
+                    # update the credit account balance (row-level lock)
+                    sql = text(f'SELECT balance FROM balances WHERE account_id = {credit_account_id} FOR UPDATE;')
+                    logging.debug(sql)
+                    credit_account_balance = self.connection.execute(sql).first()[0]
+                    sql = text(f'UPDATE balances SET balance={credit_account_balance + amount} WHERE account_id = {credit_account_id};')
+                    logging.debug(sql)
+                    self.connection.execute(sql)
+                break
+            except sqlalchemy.exc.OperationalError:
+                self.connection.rollback()
+                continue
