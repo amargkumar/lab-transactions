@@ -68,22 +68,21 @@ class Ledger:
             credit_account_id,
             amount
             ):
-        sql = text('INSERT INTO transactions (debit_account_id, credit_account_id, amount) VALUES (:d, :c, :a);')
-        sql = sql.bindparams(d=debit_account_id, c=credit_account_id, a=amount)
-        logging.debug(sql)
-        self.connection.execute(sql)
-        self.connection.commit()
-        sql = text('SELECT balance FROM balances WHERE account_id = :id;').bindparams(id=debit_account_id)
-        logging.debug(sql)
-        bal = self.connection.execute(sql).first()[0]
-        sql = text('UPDATE balances SET balance = :b WHERE account_id = :id;').bindparams(b=bal - amount, id=debit_account_id)
-        logging.debug(sql)
-        self.connection.execute(sql)
-        self.connection.commit()
-        sql = text('SELECT balance FROM balances WHERE account_id = :id;').bindparams(id=credit_account_id)
-        logging.debug(sql)
-        bal = self.connection.execute(sql).first()[0]
-        sql = text('UPDATE balances SET balance = :b WHERE account_id = :id;').bindparams(b=bal + amount, id=credit_account_id)
-        logging.debug(sql)
-        self.connection.execute(sql)
-        self.connection.commit()
+        self.connection.rollback()   # clear any transaction left open by an earlier SELECT
+        with self.connection.begin():
+            sql = text('INSERT INTO transactions (debit_account_id, credit_account_id, amount) VALUES (:d, :c, :a);')
+            sql = sql.bindparams(d=debit_account_id, c=credit_account_id, a=amount)
+            logging.debug(sql)
+            self.connection.execute(sql)
+            sql = text('SELECT balance FROM balances WHERE account_id = :id;').bindparams(id=debit_account_id)
+            logging.debug(sql)
+            bal = self.connection.execute(sql).first()[0]
+            sql = text('UPDATE balances SET balance = :b WHERE account_id = :id;').bindparams(b=bal - amount, id=debit_account_id)
+            logging.debug(sql)
+            self.connection.execute(sql)
+            sql = text('SELECT balance FROM balances WHERE account_id = :id;').bindparams(id=credit_account_id)
+            logging.debug(sql)
+            bal = self.connection.execute(sql).first()[0]
+            sql = text('UPDATE balances SET balance = :b WHERE account_id = :id;').bindparams(b=bal + amount, id=credit_account_id)
+            logging.debug(sql)
+            self.connection.execute(sql)
