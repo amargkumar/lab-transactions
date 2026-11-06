@@ -31,9 +31,7 @@ class Ledger:
         sql = text('SELECT account_id FROM accounts;')
         logging.debug(sql)
         results = self.connection.execute(sql)
-        rows = [row[0] for row in results.all()]
-        self.connection.commit()
-        return rows
+        return [row[0] for row in results.all()]
 
     def create_account(self, name):
         '''
@@ -89,8 +87,11 @@ class Ledger:
             This can result in SQL injection vulnerabilities.
         '''
 
+        self.connection.rollback()   # clear any transaction left open by an earlier SELECT
         with self.connection.begin():
-
+            sql = text('LOCK TABLE balances IN ACCESS EXCLUSIVE MODE;')
+            logging.debug(sql)
+            self.connection.execute(sql)
             # insert the transaction
             sql = text(f'INSERT INTO transactions (debit_account_id, credit_account_id, amount) VALUES ({debit_account_id}, {credit_account_id}, {amount});')
             logging.debug(sql)
@@ -99,21 +100,15 @@ class Ledger:
             # update the debit account balance
             sql = text(f'SELECT balance FROM balances WHERE account_id = {debit_account_id};')
             logging.debug(sql)
-            results = self.connection.execute(sql)
-            debit_account_balance = results.first()[0]
-
-            debit_new_balance = debit_account_balance - amount
-            sql = text(f'UPDATE balances SET balance={debit_new_balance} WHERE account_id = {debit_account_id};')
+            debit_account_balance = self.connection.execute(sql).first()[0]
+            sql = text(f'UPDATE balances SET balance={debit_account_balance - amount} WHERE account_id = {debit_account_id};')
             logging.debug(sql)
             self.connection.execute(sql)
 
             # update the credit account balance
             sql = text(f'SELECT balance FROM balances WHERE account_id = {credit_account_id};')
             logging.debug(sql)
-            results = self.connection.execute(sql)
-            credit_account_balance = results.first()[0]
-
-            credit_new_balance = credit_account_balance + amount
-            sql = text(f'UPDATE balances SET balance={credit_new_balance} WHERE account_id = {credit_account_id};')
+            credit_account_balance = self.connection.execute(sql).first()[0]
+            sql = text(f'UPDATE balances SET balance={credit_account_balance + amount} WHERE account_id = {credit_account_id};')
             logging.debug(sql)
             self.connection.execute(sql)
